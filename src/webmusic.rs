@@ -337,13 +337,14 @@ impl Session {
         if status["status"] != "OK" {
             anyhow::bail!("{}: {}", status["status"].as_str().unwrap_or("UNPLAYABLE"), status["reason"].as_str().unwrap_or("no reason given"));
         }
-        // 141 is Premium's 256 kbps AAC-LC; 140 is the usual 128 kbps.
+        // 774 is Premium's 256 kbps Opus; 141 is Premium's 256 kbps AAC-LC; 140 is 128 kbps.
         let formats = resp["streamingData"]["adaptiveFormats"].as_array().map(Vec::as_slice).unwrap_or_default();
-        let f = [141, 140, 139]
+        let f = [774, 141, 140, 139]
             .iter()
             .find_map(|itag| formats.iter().find(|f| f["itag"] == *itag))
-            .ok_or_else(|| anyhow::anyhow!("no AAC stream in web player response"))?;
-        log::info!("web music: {video_id} itag {} ({} kbps)", f["itag"], f["bitrate"].as_u64().unwrap_or(0) / 1000);
+            .ok_or_else(|| anyhow::anyhow!("no supported audio stream in web player response"))?;
+        let is_opus = f["itag"] == 774 || f["mimeType"].as_str().unwrap_or("").contains("opus");
+        log::info!("web music: {video_id} itag {} ({} kbps){}", f["itag"], f["bitrate"].as_u64().unwrap_or(0) / 1000, if is_opus { " [Opus 774]" } else { "" });
         let size = f["contentLength"].as_str().and_then(|s| s.parse().ok()).ok_or_else(|| anyhow::anyhow!("unknown stream size"))?;
         let duration_ms = f["approxDurationMs"].as_str().and_then(|d| d.parse().ok()).unwrap_or(0);
         let loudness_db = crate::innertube::loudness(&resp, f);
@@ -371,7 +372,7 @@ impl Session {
             pairs.push((sp, sig));
         }
         url.query_pairs_mut().clear().extend_pairs(pairs);
-        Ok(Stream { url: url.into(), size, duration_ms, loudness_db, opus: false })
+        Ok(Stream { url: url.into(), size, duration_ms, loudness_db, opus: is_opus })
     }
 }
 
